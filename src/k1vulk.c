@@ -1,5 +1,4 @@
 #include "stdio.h"
-#include <assert.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -18,6 +17,10 @@ void *array_new(int raw_size) {
     return pointer;
 }
 #define ARRAY_NEW(type, size) array_new(sizeof(type) * (size + 1))
+void runtime_error(const char *msg) {
+    fprintf(stderr, "Error: %s\n", msg);
+    exit(EXIT_FAILURE);
+}
 
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
@@ -27,6 +30,9 @@ const bool enableValidationLayers = true;
 
 const char *validationLayers[] = {
     "VK_LAYER_KHRONOS_validation"
+};
+const char *deviceExtensions[] = {
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
@@ -104,7 +110,7 @@ static void initVulkan(Application *app) {
     createInfo.pApplicationInfo = &appInfo;
 
     if (enableValidationLayers && !checkValidationLayerSupport()) {
-        assert("validation layers requested, but not available");
+        runtime_error("validation layers requested, but not available");
     }
 
     enableRequiredExtentions(&createInfo);
@@ -119,7 +125,7 @@ static void initVulkan(Application *app) {
         createInfo.enabledLayerCount = 0;
     }
     if (vkCreateInstance(&createInfo, NULL, &app->instance) != VK_SUCCESS) {
-        assert("failed to create instance!");
+        runtime_error("failed to create instance!");
     }
 }
 
@@ -141,13 +147,13 @@ static void setupDebugMessenger(Application *app) {
     VkDebugUtilsMessengerCreateInfoEXT createInfo = {0};
     populateDebugMessengerCreateInfo(&createInfo);
     if (CreateDebugUtilsMessengerEXT(app->instance, &createInfo, NULL, &app->debugMessenger) != VK_SUCCESS) {
-        assert("failed to setup debug messenger!");
+        runtime_error("failed to setup debug messenger!");
     }
 }
 
 static void createSurface(Application *app) {
     if (glfwCreateWindowSurface(app->instance, app->window, NULL, &app->surface) != VK_SUCCESS) {
-        assert("failed to create window surface!");
+        runtime_error("failed to create window surface!");
     }
 }
 
@@ -184,6 +190,27 @@ static QueueFamilyIndices findQueueFamilies(Application *app, VkPhysicalDevice d
     return indices;
 }
 
+static bool checkDeviceExtensionSupport(Application *app, VkPhysicalDevice device) {
+    uint32_t extensionCount;
+    vkEnumerateDeviceExtensionProperties(device, NULL, &extensionCount, NULL);
+
+    VkExtensionProperties *availableExtensions = ARRAY_NEW(VkExtensionProperties, extensionCount);
+    vkEnumerateDeviceExtensionProperties(device, NULL, &extensionCount, availableExtensions);
+
+    bool extentionFound = false;
+    for (int de_i = 0; de_i < ARRAY_LEN(deviceExtensions); ++de_i) {
+        for (int ae_i = 0; ae_i < extensionCount; ++ae_i) {
+            if (strcmp(deviceExtensions[de_i], availableExtensions[ae_i].extensionName) == 0) {
+                extentionFound = true;
+                break;
+            }
+        }
+        if (extentionFound) break;
+    }
+    free(availableExtensions);
+    return extentionFound;
+}
+
 static bool isDeviceSuitable(Application *app, VkPhysicalDevice device) {
     VkPhysicalDeviceProperties deviceProperties;
     VkPhysicalDeviceFeatures deviceFeatures;
@@ -191,9 +218,12 @@ static bool isDeviceSuitable(Application *app, VkPhysicalDevice device) {
     vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
     // TODO: Pick the best GPU
     QueueFamilyIndices indices = findQueueFamilies(app, device);
+    bool extensionsSupported = checkDeviceExtensionSupport(app, device);
+
     return indices.graphicsFamily.has_value
         && indices.presentFamily.has_value
-        && deviceFeatures.geometryShader;
+        && deviceFeatures.geometryShader
+        && extensionsSupported;
 }
 
 static void pickPhysicalDevice(Application *app) {
@@ -208,9 +238,8 @@ static void pickPhysicalDevice(Application *app) {
             break;
         }
     }
-
-    if (app->physicalDevice == VK_NULL_HANDLE) {
-        assert("failed to find a suitable GPU!");
+    if (app->physicalDevice == NULL) {
+        runtime_error("failed to find a suitable GPU!");
     }
 }
 
@@ -241,7 +270,10 @@ static void createLogicalDevice(Application *app) {
     createInfo.pQueueCreateInfos = queueCreateInfos.items;
 
     createInfo.pEnabledFeatures = &deviceFeatures;
-    createInfo.enabledExtensionCount = 0;
+
+    createInfo.enabledExtensionCount = ARRAY_LEN(deviceExtensions);
+    createInfo.ppEnabledExtensionNames = deviceExtensions;
+
     if (enableValidationLayers) {
         createInfo.enabledLayerCount = ARRAY_LEN(validationLayers);
         createInfo.ppEnabledLayerNames = validationLayers;
@@ -249,7 +281,7 @@ static void createLogicalDevice(Application *app) {
         createInfo.enabledLayerCount = 0;
     }
     if (vkCreateDevice(app->physicalDevice, &createInfo, NULL, &app->device) != VK_SUCCESS) {
-        assert("failed to create logical device!");
+        runtime_error("failed to create logical device!");
     }
     vkGetDeviceQueue(app->device, indices.graphicsFamily.value, 0, &app->graphicsQueue);
     vkGetDeviceQueue(app->device, indices.presentFamily.value, 0, &app->presentQueue);
