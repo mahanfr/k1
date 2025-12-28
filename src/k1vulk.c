@@ -196,11 +196,39 @@ static void pickPhysicalDevice(Application *app) {
     }
 }
 
+static void createLogicalDevice(Application *app) {
+    QueueFamilyIndices indices = findQueueFamilies(app->physicalDevice);
+    VkDeviceQueueCreateInfo queueCreateInfo = {0};
+    queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queueCreateInfo.queueFamilyIndex = indices.graphicsFamily.value;
+    queueCreateInfo.queueCount = 1;
+    float queuePriority = 1.0f;
+    queueCreateInfo.pQueuePriorities = &queuePriority;
+    VkPhysicalDeviceFeatures deviceFeatures = {0};
+    VkDeviceCreateInfo createInfo = {0};
+    createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    createInfo.pQueueCreateInfos = &queueCreateInfo;
+    createInfo.queueCreateInfoCount = 1;
+    createInfo.pEnabledFeatures = &deviceFeatures;
+    createInfo.enabledExtensionCount = 0;
+    if (enableValidationLayers) {
+        createInfo.enabledLayerCount = ARRAY_LEN(validationLayers);
+        createInfo.ppEnabledLayerNames = validationLayers;
+    } else {
+        createInfo.enabledLayerCount = 0;
+    }
+    if (vkCreateDevice(app->physicalDevice, &createInfo, NULL, &app->device) != VK_SUCCESS) {
+        assert("failed to create logical device!");
+    }
+    vkGetDeviceQueue(app->device, indices.graphicsFamily.value, 0, &app->graphicsQueue);
+}
+
 Application k1_init_window(int width, int height, const char *title) {
     Application app = initWindow(width, height, title);
     initVulkan(&app);
     setupDebugMessenger(&app);
     pickPhysicalDevice(&app);
+    createLogicalDevice(&app);
     return app;
 }
 
@@ -218,6 +246,7 @@ void k1_main_loop(Application *app) {
 }
 
 void k1_cleanup(Application *app) {
+    vkDestroyDevice(app->device, NULL);
     if (enableValidationLayers) {
         DestroyDebugUtilsMessengerEXT(app->instance, app->debugMessenger, NULL);
     }

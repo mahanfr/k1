@@ -9,6 +9,8 @@ typedef struct {
     VkInstance instance;
     VkDebugUtilsMessengerEXT debugMessenger;
     VkPhysicalDevice physicalDevice;
+    VkDevice device;
+    VkQueue graphicsQueue;
 } Application;
 
 Application k1_init_window(int width, int height, const char *title);
