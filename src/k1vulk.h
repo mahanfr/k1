@@ -11,6 +11,8 @@ typedef struct {
     VkPhysicalDevice physicalDevice;
     VkDevice device;
     VkQueue graphicsQueue;
+    VkSurfaceKHR surface;
+    VkQueue presentQueue;
 } Application;
 
 Application k1_init_window(int width, int height, const char *title);
