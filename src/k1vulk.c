@@ -22,6 +22,10 @@ void runtime_error(const char *msg) {
     exit(EXIT_FAILURE);
 }
 
+#define OPTIONAL(Type) struct {bool has_value; Type value;}
+#define VECTOR_T(T) struct { T *items; int count; int capacity; }
+#define VECTOR(T)   (VECTOR_T(T)){ NULL, 0, 0 }
+
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
 #else
@@ -34,6 +38,12 @@ const char *validationLayers[] = {
 const char *deviceExtensions[] = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
+
+typedef struct {
+    VkSurfaceCapabilitiesKHR capabilities;
+    VECTOR_T(VkSurfaceFormatKHR) formats;
+    VECTOR_T(VkPresentModeKHR) presentModes;
+} SwapChainSupportDetails;
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -157,10 +167,6 @@ static void createSurface(Application *app) {
     }
 }
 
-#define OPTIONAL(Type) struct {bool has_value; Type value;}
-#define VECTOR_T(T) struct { T *items; int count; int capacity; }
-#define VECTOR(T)   (VECTOR_T(T)){ NULL, 0, 0 }
-
 typedef struct {
     OPTIONAL(uint32_t) graphicsFamily;
     OPTIONAL(uint32_t) presentFamily;
@@ -211,6 +217,30 @@ static bool checkDeviceExtensionSupport(Application *app, VkPhysicalDevice devic
     return extentionFound;
 }
 
+static SwapChainSupportDetails querySwapChainSupport(Application *app, VkPhysicalDevice device) {
+    SwapChainSupportDetails details = {0};
+
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, app->surface, &details.capabilities);
+
+    uint32_t formatCount;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(device, app->surface, &formatCount, NULL);
+    if (formatCount != 0) {
+        da_resize(&details.formats, formatCount + 1);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(device, app->surface, &formatCount, details.formats.items);
+        details.formats.count = formatCount;
+    }
+
+    uint32_t presentModeCount;
+    vkGetPhysicalDeviceSurfacePresentModesKHR(device, app->surface, &presentModeCount, NULL);
+    if (presentModeCount != 0) {
+        da_resize(&details.presentModes, presentModeCount + 1);
+        vkGetPhysicalDeviceSurfacePresentModesKHR(device, app->surface, &presentModeCount, details.presentModes.items);
+        details.presentModes.count = formatCount;
+    }
+
+    return details;
+}
+
 static bool isDeviceSuitable(Application *app, VkPhysicalDevice device) {
     VkPhysicalDeviceProperties deviceProperties;
     VkPhysicalDeviceFeatures deviceFeatures;
@@ -219,11 +249,17 @@ static bool isDeviceSuitable(Application *app, VkPhysicalDevice device) {
     // TODO: Pick the best GPU
     QueueFamilyIndices indices = findQueueFamilies(app, device);
     bool extensionsSupported = checkDeviceExtensionSupport(app, device);
+    bool swapChainAdequate = false;
+    if (extensionsSupported) {
+        SwapChainSupportDetails swapChainSupport = querySwapChainSupport(app, device);
+        swapChainAdequate = (swapChainSupport.formats.count > 0) && (swapChainSupport.presentModes.count > 0);
+    }
 
     return indices.graphicsFamily.has_value
         && indices.presentFamily.has_value
         && deviceFeatures.geometryShader
-        && extensionsSupported;
+        && extensionsSupported
+        && swapChainAdequate;
 }
 
 static void pickPhysicalDevice(Application *app) {
