@@ -20,6 +20,7 @@ typedef struct {
     VkFormat swapChainImageFormat;
     VkExtent2D swapChainExtent;
     VECTOR_T(VkImageView) swapChainImageViews;
+    VkRenderPass renderPass;
     VkPipelineLayout pipelineLayout;
 } Application;
 

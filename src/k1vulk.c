@@ -502,6 +502,36 @@ VkShaderModule createShaderModule(Application *app, SizedString *code) {
     return shaderModule;
 }
 
+static void createRenderPass(Application *app) {
+    VkAttachmentDescription colorAttachment = {0};
+    colorAttachment.format = app->swapChainImageFormat;
+    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VkAttachmentReference colorAttachmentRef = {0};
+    colorAttachmentRef.attachment = 0;
+    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass = {0};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &colorAttachmentRef;
+
+    VkRenderPassCreateInfo renderPassInfo = {0};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    renderPassInfo.attachmentCount = 1;
+    renderPassInfo.pAttachments = &colorAttachment;
+    renderPassInfo.subpassCount = 1;
+    renderPassInfo.pSubpasses = &subpass;
+
+    if (vkCreateRenderPass(app->device, &renderPassInfo, NULL, &app->renderPass) != VK_SUCCESS) {
+        runtime_error("failed to create render pass!");
+    }
+}
+
 static void createGraphicsPipeline(Application *app) {
     SizedString vertShaderCode = readFile("shaders/triangle.vert.spv");
     SizedString fragShaderCode = readFile("shaders/triangle.frag.spv");
@@ -606,6 +636,7 @@ Application k1_init_window(int width, int height, const char *title) {
 
     createSwapChain(&app);
     createImageViews(&app);
+    createRenderPass(&app);
     createGraphicsPipeline(&app);
     return app;
 }
@@ -625,6 +656,7 @@ void k1_main_loop(Application *app) {
 
 void k1_cleanup(Application *app) {
     vkDestroyPipelineLayout(app->device, app->pipelineLayout, NULL);
+    vkDestroyRenderPass(app->device, app->renderPass, NULL);
     for (int i = 0; i < app->swapChainImageViews.count; ++i) {
         vkDestroyImageView(app->device, app->swapChainImageViews.items[i], NULL);
     }
