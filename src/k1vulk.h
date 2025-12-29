@@ -24,6 +24,8 @@ typedef struct {
     VkPipelineLayout pipelineLayout;
     VkPipeline graphicsPipeline;
     VECTOR_T(VkFramebuffer) swapChainFramebuffers;
+    VkCommandPool commandPool;
+    VkCommandBuffer commandBuffer;
 } Application;
 
 Application k1_init_window(int width, int height, const char *title);

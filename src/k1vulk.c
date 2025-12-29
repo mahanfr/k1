@@ -669,6 +669,75 @@ static void createFrameBuffer(Application *app) {
      }
 }
 
+static void createCommandPool(Application *app) {
+    QueueFamilyIndices queueFamilyIndices = findQueueFamilies(app, app->physicalDevice);
+
+    VkCommandPoolCreateInfo poolInfo = {0};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value;
+    if (vkCreateCommandPool(app->device, &poolInfo, NULL, &app->commandPool) != VK_SUCCESS) {
+        runtime_error("failed to create command pool!");
+    }
+}
+
+static void createCommandBuffer(Application *app) {
+    VkCommandBufferAllocateInfo allocInfo = {0};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = app->commandPool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = 1;
+
+    if (vkAllocateCommandBuffers(app->device, &allocInfo, &app->commandBuffer) != VK_SUCCESS) {
+        runtime_error("failed to allocate command buffers!");
+    }
+}
+
+static void recordCommandBuffer(Application *app, VkCommandBuffer commandBuffer, uint32_t imageIndex) {
+    VkCommandBufferBeginInfo beginInfo = {0};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = 0;
+    beginInfo.pInheritanceInfo = NULL;
+
+    if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
+        runtime_error("failed to begin recording command buffer!");
+    }
+    VkRenderPassBeginInfo renderPassInfo = {0};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = app->renderPass;
+    renderPassInfo.framebuffer = app->swapChainFramebuffers.items[imageIndex];
+    renderPassInfo.renderArea.offset = (VkOffset2D) {0, 0};
+    renderPassInfo.renderArea.extent = app->swapChainExtent;
+
+    VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+    renderPassInfo.clearValueCount = 1;
+    renderPassInfo.pClearValues = &clearColor;
+
+    // ---- START OF COMMAND RECORDING ---- //
+    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, app->graphicsPipeline);
+    VkViewport viewport = {0};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width  = (float) app->swapChainExtent.width;
+    viewport.height = (float) app->swapChainExtent.height;
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+    VkRect2D scissor = {0};
+    scissor.offset = (VkOffset2D) {0, 0};
+    scissor.extent = app->swapChainExtent;
+    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+    vkCmdEndRenderPass(commandBuffer);
+    // ---- END OF COMMAND RECORDING ---- //
+    if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
+        runtime_error("failed to record command buffer!");
+    }
+}
+
 Application k1_init_window(int width, int height, const char *title) {
     Application app = initWindow(width, height, title);
     initVulkan(&app);
@@ -682,6 +751,8 @@ Application k1_init_window(int width, int height, const char *title) {
     createRenderPass(&app);
     createGraphicsPipeline(&app);
     createFrameBuffer(&app);
+    createCommandPool(&app);
+    createCommandBuffer(&app);
     return app;
 }
 
@@ -699,6 +770,7 @@ void k1_main_loop(Application *app) {
 }
 
 void k1_cleanup(Application *app) {
+    vkDestroyCommandPool(app->device, app->commandPool, NULL);
     for (int i = 0; i < app->swapChainFramebuffers.count; ++i) {
         vkDestroyFramebuffer(app->device, app->swapChainFramebuffers.items[i], NULL);
     }
