@@ -1,8 +1,10 @@
 #include "stdio.h"
+#include <fcntl.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <limits.h>
 #include "k1vulk.h"
 #include "array.h"
 #include <vulkan/vk_platform.h>
@@ -23,8 +25,40 @@ void runtime_error(const char *msg) {
 }
 
 #define OPTIONAL(Type) struct {bool has_value; Type value;}
-#define VECTOR_T(T) struct { T *items; int count; int capacity; }
-#define VECTOR(T)   (VECTOR_T(T)){ NULL, 0, 0 }
+static inline int clamp(uint32_t x, uint32_t lo, uint32_t hi) {
+    if (x < lo) return lo;
+    if (x > hi) return hi;
+    return x;
+}
+
+typedef struct {
+    const char *items;
+    int size;
+} SizedString;
+
+static SizedString readFile(const char* filePath) {
+    SizedString str = {0};
+    FILE *f = fopen(filePath, "rb");
+    if (f == NULL) {
+        fprintf(stderr, "WARNING: Can not read file (%s)!", filePath);
+        return str;
+    }
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fprintf(stderr, "WARNING: Can not read file (%s)!", filePath);
+        return str;
+    }
+    size_t size = ftell(f);
+    str.items = ARRAY_NEW(char, size);
+    rewind(f);
+    size_t read;
+    if ((read = fread(&str.items, sizeof(char), size, f)) == 0) {
+        fprintf(stderr, "WARNING: Can not read file (%s)!", filePath);
+        return str;
+    }
+    str.size = read;
+    fclose(f);
+    return str;
+}
 
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
@@ -241,6 +275,47 @@ static SwapChainSupportDetails querySwapChainSupport(Application *app, VkPhysica
     return details;
 }
 
+VkSurfaceFormatKHR chooseSwapSurfaceFormat(
+        Application *app,
+        const VkSurfaceFormatKHR *availableFormats,
+        int formatsCount) {
+
+    for (int i = 0; i < formatsCount; ++i) {
+        if (availableFormats[i].format == VK_FORMAT_B8G8R8A8_SRGB && availableFormats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+            return availableFormats[i];
+        }
+    }
+    return availableFormats[0];
+}
+
+VkPresentModeKHR chooseSwapPresentMode(
+        Application *app,
+        const VkPresentModeKHR* availablePresentModes,
+        int presentModesCount) {
+    for (int i = 0; i < presentModesCount; ++i) {
+        if (availablePresentModes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
+            return availablePresentModes[i];
+        }
+    }
+    return VK_PRESENT_MODE_FIFO_KHR;
+}
+
+VkExtent2D chooseSwapExtent(Application *app, const VkSurfaceCapabilitiesKHR capabilities) {
+    if (capabilities.currentExtent.width != UINT32_MAX) {
+        return capabilities.currentExtent;
+    } else {
+        int width, height;
+        glfwGetFramebufferSize(app->window, &width, &height);
+        VkExtent2D actualExtent = {
+            (uint32_t) width,
+            (uint32_t) height
+        };
+        actualExtent.width  = clamp(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
+        actualExtent.height = clamp(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+        return actualExtent;
+    }
+}
+
 static bool isDeviceSuitable(Application *app, VkPhysicalDevice device) {
     VkPhysicalDeviceProperties deviceProperties;
     VkPhysicalDeviceFeatures deviceFeatures;
@@ -325,6 +400,89 @@ static void createLogicalDevice(Application *app) {
     da_free(queueCreateInfos);
 }
 
+static void createSwapChain(Application *app) {
+    SwapChainSupportDetails swapChainSupport = querySwapChainSupport(app, app->physicalDevice);
+    VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(app, swapChainSupport.formats.items, swapChainSupport.formats.count);
+    VkPresentModeKHR presentMode = chooseSwapPresentMode(app, swapChainSupport.presentModes.items, swapChainSupport.presentModes.count);
+    VkExtent2D extent = chooseSwapExtent(app, swapChainSupport.capabilities);
+
+    uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
+    if (swapChainSupport.capabilities.maxImageCount > 0
+            && imageCount > swapChainSupport.capabilities.maxImageCount) {
+        imageCount = swapChainSupport.capabilities.maxImageCount;
+    }
+    VkSwapchainCreateInfoKHR createInfo = {0};
+    createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    createInfo.surface = app->surface;
+    createInfo.minImageCount = imageCount;
+    createInfo.imageFormat = surfaceFormat.format;
+    createInfo.imageColorSpace = surfaceFormat.colorSpace;
+    createInfo.imageExtent = extent;
+    createInfo.imageArrayLayers = 1;
+    createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+    QueueFamilyIndices indices = findQueueFamilies(app, app->physicalDevice);
+    uint32_t queueFamilyIndices[] = {indices.graphicsFamily.value, indices.presentFamily.value};
+
+    if ((indices.graphicsFamily.has_value && indices.presentFamily.has_value)
+            && (indices.graphicsFamily.value != indices.presentFamily.value)) {
+        createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+        createInfo.queueFamilyIndexCount = 2;
+        createInfo.pQueueFamilyIndices = queueFamilyIndices;
+    } else {
+        createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        createInfo.queueFamilyIndexCount = 0;
+        createInfo.pQueueFamilyIndices = NULL;
+    }
+    createInfo.preTransform = swapChainSupport.capabilities.currentTransform;
+    createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    createInfo.presentMode = presentMode;
+    createInfo.clipped = VK_TRUE;
+    createInfo.oldSwapchain = VK_NULL_HANDLE;
+    if (vkCreateSwapchainKHR(app->device, &createInfo, NULL, &app->swapChain) != VK_SUCCESS) {
+        runtime_error("failed to create swap chain!");
+    }
+    vkGetSwapchainImagesKHR(app->device, app->swapChain, &imageCount, NULL);
+    da_resize(&app->swapChainImages, imageCount + 1);
+    vkGetSwapchainImagesKHR(app->device, app->swapChain, &imageCount, app->swapChainImages.items);
+    app->swapChainImages.count = imageCount;
+
+    app->swapChainImageFormat = surfaceFormat.format;
+    app->swapChainExtent = extent;
+
+}
+
+static void createImageViews(Application *app) {
+    da_resize(&app->swapChainImageViews, app->swapChainImages.count);
+    for (size_t i = 0; i < app->swapChainImages.count; ++i) {
+        VkImageViewCreateInfo createInfo = {0};
+        createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        createInfo.image = app->swapChainImages.items[i];
+        createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        createInfo.format = app->swapChainImageFormat;
+        createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+        createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        createInfo.subresourceRange.baseMipLevel = 0;
+        createInfo.subresourceRange.levelCount = 1;
+        createInfo.subresourceRange.baseArrayLayer = 0;
+        createInfo.subresourceRange.layerCount = 1;
+        if (vkCreateImageView(app->device, &createInfo, NULL, &app->swapChainImageViews.items[i]) != VK_SUCCESS) {
+            runtime_error("failed to create image views!");
+        }
+    }
+}
+
+static void createGraphicsPipeline(Application *app) {
+    SizedString vertShaderCode = readFile("shaders/vert.spv");
+    SizedString fragShaderCode = readFile("shaders/frag.spv"); 
+    if (vertShaderCode.size == 0 || fragShaderCode.size == 0) {
+        runtime_error("Can not load nessersey shaders!");
+    }
+}
+
 Application k1_init_window(int width, int height, const char *title) {
     Application app = initWindow(width, height, title);
     initVulkan(&app);
@@ -332,6 +490,10 @@ Application k1_init_window(int width, int height, const char *title) {
     createSurface(&app);
     pickPhysicalDevice(&app);
     createLogicalDevice(&app);
+
+    createSwapChain(&app);
+    createImageViews(&app);
+    createGraphicsPipeline(&app);
     return app;
 }
 
@@ -349,6 +511,10 @@ void k1_main_loop(Application *app) {
 }
 
 void k1_cleanup(Application *app) {
+    for (int i = 0; i < app->swapChainImageViews.count; ++i) {
+        vkDestroyImageView(app->device, app->swapChainImageViews.items[i], NULL);
+    }
+    vkDestroySwapchainKHR(app->device, app->swapChain, NULL);
     vkDestroyDevice(app->device, NULL);
     if (enableValidationLayers) {
         DestroyDebugUtilsMessengerEXT(app->instance, app->debugMessenger, NULL);

@@ -4,6 +4,8 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#define VECTOR_T(T) struct { T *items; int count; int capacity; }
+
 typedef struct {
     GLFWwindow *window;
     VkInstance instance;
@@ -13,6 +15,11 @@ typedef struct {
     VkQueue graphicsQueue;
     VkSurfaceKHR surface;
     VkQueue presentQueue;
+    VkSwapchainKHR swapChain;
+    VECTOR_T(VkImage) swapChainImages;
+    VkFormat swapChainImageFormat;
+    VkExtent2D swapChainExtent;
+    VECTOR_T(VkImageView) swapChainImageViews;
 } Application;
 
 Application k1_init_window(int width, int height, const char *title);
