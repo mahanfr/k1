@@ -11,5 +11,5 @@ It takes about 880 lines of code to draw a rectangle on screen using Vulkan.
 
 Thanks to [https://vulkan-tutorial.com]
 
-All codes up to This commit () can be used as a refrence for translating vulkan-tutorial c++ code to c.
+All codes up to This commit 7dfe61d can be used as a refrence for translating vulkan-tutorial c++ code to c.
 
