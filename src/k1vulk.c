@@ -32,30 +32,45 @@ static inline int clamp(uint32_t x, uint32_t lo, uint32_t hi) {
 }
 
 typedef struct {
-    const char *items;
+    char *items;
     int size;
 } SizedString;
 
 static SizedString readFile(const char* filePath) {
     SizedString str = {0};
     FILE *f = fopen(filePath, "rb");
-    if (f == NULL) {
-        fprintf(stderr, "WARNING: Can not read file (%s)!", filePath);
+    if (!f) {
+        fprintf(stderr, "WARNING: Cannot read file (%s)!\n", filePath);
         return str;
     }
+
     if (fseek(f, 0, SEEK_END) != 0) {
-        fprintf(stderr, "WARNING: Can not read file (%s)!", filePath);
+        fclose(f);
+        fprintf(stderr, "WARNING: Cannot read file (%s)!\n", filePath);
         return str;
     }
+
     size_t size = ftell(f);
-    str.items = ARRAY_NEW(char, size);
     rewind(f);
-    size_t read;
-    if ((read = fread(&str.items, sizeof(char), size, f)) == 0) {
-        fprintf(stderr, "WARNING: Can not read file (%s)!", filePath);
+
+    str.items = ARRAY_NEW(char, size + 1);
+    if (!str.items) {
+        fclose(f);
+        fprintf(stderr, "WARNING: Allocation failed (%s)!\n", filePath);
         return str;
     }
-    str.size = read;
+
+    size_t read = fread(str.items, sizeof(char), size, f);
+    if (read == 0 && size != 0) {
+        free(str.items);
+        fclose(f);
+        fprintf(stderr, "WARNING: Cannot read file (%s)!\n", filePath);
+        return (SizedString){0};
+    }
+
+    str.items[read] = '\0';
+    str.size = (int)read;
+
     fclose(f);
     return str;
 }
@@ -475,12 +490,45 @@ static void createImageViews(Application *app) {
     }
 }
 
+VkShaderModule createShaderModule(Application *app, SizedString *code) {
+    VkShaderModuleCreateInfo createInfo = {0};
+    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    createInfo.codeSize = code->size;
+    createInfo.pCode = (uint32_t*) code->items;
+    VkShaderModule shaderModule;
+    if (vkCreateShaderModule(app->device, &createInfo, NULL, &shaderModule) != VK_SUCCESS) {
+        runtime_error("failed to create shader module!");
+    }
+    return shaderModule;
+}
+
 static void createGraphicsPipeline(Application *app) {
-    SizedString vertShaderCode = readFile("shaders/vert.spv");
-    SizedString fragShaderCode = readFile("shaders/frag.spv"); 
+    SizedString vertShaderCode = readFile("shaders/triangle.vert.spv");
+    SizedString fragShaderCode = readFile("shaders/triangle.frag.spv");
     if (vertShaderCode.size == 0 || fragShaderCode.size == 0) {
         runtime_error("Can not load nessersey shaders!");
     }
+    VkShaderModule vertShaderModule = createShaderModule(app, &vertShaderCode);
+    VkShaderModule fragShaderModule = createShaderModule(app, &fragShaderCode);
+
+    VkPipelineShaderStageCreateInfo vertShaderStageInfo = {0};
+    vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    vertShaderStageInfo.module = vertShaderModule;
+    vertShaderStageInfo.pName = "main";
+
+    VkPipelineShaderStageCreateInfo fragShaderStageInfo = {0};
+    fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    fragShaderStageInfo.module = fragShaderModule;
+    fragShaderStageInfo.pName = "main";
+
+    VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
+
+    vkDestroyShaderModule(app->device, fragShaderModule, NULL);
+    vkDestroyShaderModule(app->device, vertShaderModule, NULL);
+    free((void*) vertShaderCode.items);
+    free((void*) fragShaderCode.items);
 }
 
 Application k1_init_window(int width, int height, const char *title) {
