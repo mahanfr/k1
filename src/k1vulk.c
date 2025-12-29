@@ -646,6 +646,29 @@ static void createGraphicsPipeline(Application *app) {
     free((void*) fragShaderCode.items);
 }
 
+static void createFrameBuffer(Application *app) {
+     da_resize(&app->swapChainFramebuffers, app->swapChainImageViews.count + 1);
+     for (size_t i = 0; i < app->swapChainImageViews.count; i++) {
+         VkImageView attachments[] = {
+             app->swapChainImageViews.items[i]
+         };
+
+         VkFramebufferCreateInfo framebufferInfo = {0};
+         framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+         framebufferInfo.renderPass = app->renderPass;
+         framebufferInfo.attachmentCount = 1;
+         framebufferInfo.pAttachments = attachments;
+         framebufferInfo.width = app->swapChainExtent.width;
+         framebufferInfo.height = app->swapChainExtent.height;
+         framebufferInfo.layers = 1;
+
+         if (vkCreateFramebuffer(app->device, &framebufferInfo, NULL, &app->swapChainFramebuffers.items[i]) != VK_SUCCESS) {
+             runtime_error("failed to create framebuffer!");
+         }
+         app->swapChainFramebuffers.count = app->swapChainImageViews.count;
+     }
+}
+
 Application k1_init_window(int width, int height, const char *title) {
     Application app = initWindow(width, height, title);
     initVulkan(&app);
@@ -658,6 +681,7 @@ Application k1_init_window(int width, int height, const char *title) {
     createImageViews(&app);
     createRenderPass(&app);
     createGraphicsPipeline(&app);
+    createFrameBuffer(&app);
     return app;
 }
 
@@ -675,6 +699,9 @@ void k1_main_loop(Application *app) {
 }
 
 void k1_cleanup(Application *app) {
+    for (int i = 0; i < app->swapChainFramebuffers.count; ++i) {
+        vkDestroyFramebuffer(app->device, app->swapChainFramebuffers.items[i], NULL);
+    }
     vkDestroyPipeline(app->device, app->graphicsPipeline, NULL);
     vkDestroyPipelineLayout(app->device, app->pipelineLayout, NULL);
     vkDestroyRenderPass(app->device, app->renderPass, NULL);

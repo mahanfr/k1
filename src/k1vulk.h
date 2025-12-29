@@ -23,6 +23,7 @@ typedef struct {
     VkRenderPass renderPass;
     VkPipelineLayout pipelineLayout;
     VkPipeline graphicsPipeline;
+    VECTOR_T(VkFramebuffer) swapChainFramebuffers;
 } Application;
 
 Application k1_init_window(int width, int height, const char *title);
