@@ -26,6 +26,9 @@ typedef struct {
     VECTOR_T(VkFramebuffer) swapChainFramebuffers;
     VkCommandPool commandPool;
     VkCommandBuffer commandBuffer;
+    VkSemaphore imageAvailableSemaphore;
+    VkSemaphore renderFinishedSemaphore;
+    VkFence inFlightFence;
 } Application;
 
 Application k1_init_window(int width, int height, const char *title);
