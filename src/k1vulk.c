@@ -620,6 +620,26 @@ static void createGraphicsPipeline(Application *app) {
         runtime_error("failed to create pipeline layout!");
     }
 
+    VkGraphicsPipelineCreateInfo pipelineInfo = {0};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = 2;
+    pipelineInfo.pStages = shaderStages;
+    pipelineInfo.pVertexInputState = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &multisampling;
+    pipelineInfo.pColorBlendState = &colorBlending;
+    pipelineInfo.pDynamicState = &dynamicState;
+    pipelineInfo.layout = app->pipelineLayout;
+    pipelineInfo.renderPass = app->renderPass;
+    pipelineInfo.subpass = 0;
+    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+
+    if (vkCreateGraphicsPipelines(app->device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &app->graphicsPipeline) != VK_SUCCESS) {
+        runtime_error("failed to create graphics pipeline!");
+    }
+
     vkDestroyShaderModule(app->device, fragShaderModule, NULL);
     vkDestroyShaderModule(app->device, vertShaderModule, NULL);
     free((void*) vertShaderCode.items);
@@ -655,6 +675,7 @@ void k1_main_loop(Application *app) {
 }
 
 void k1_cleanup(Application *app) {
+    vkDestroyPipeline(app->device, app->graphicsPipeline, NULL);
     vkDestroyPipelineLayout(app->device, app->pipelineLayout, NULL);
     vkDestroyRenderPass(app->device, app->renderPass, NULL);
     for (int i = 0; i < app->swapChainImageViews.count; ++i) {

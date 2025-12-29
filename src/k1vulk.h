@@ -22,6 +22,7 @@ typedef struct {
     VECTOR_T(VkImageView) swapChainImageViews;
     VkRenderPass renderPass;
     VkPipelineLayout pipelineLayout;
+    VkPipeline graphicsPipeline;
 } Application;
 
 Application k1_init_window(int width, int height, const char *title);
