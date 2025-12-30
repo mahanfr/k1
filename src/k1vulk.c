@@ -81,6 +81,8 @@ const bool enableValidationLayers = false;
 const bool enableValidationLayers = true;
 #endif
 
+const int MAX_FRAMES_IN_FLIGHT = 2;
+
 const char *validationLayers[] = {
     "VK_LAYER_KHRONOS_validation"
 };
@@ -707,14 +709,15 @@ static void createCommandPool(Application *app) {
     }
 }
 
-static void createCommandBuffer(Application *app) {
+static void createCommandBuffers(Application *app) {
     VkCommandBufferAllocateInfo allocInfo = {0};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.commandPool = app->commandPool;
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandBufferCount = 1;
+    allocInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
 
-    if (vkAllocateCommandBuffers(app->device, &allocInfo, &app->commandBuffer) != VK_SUCCESS) {
+    da_resize(&app->commandBuffers, MAX_FRAMES_IN_FLIGHT);
+    if (vkAllocateCommandBuffers(app->device, &allocInfo, app->commandBuffers.items) != VK_SUCCESS) {
         runtime_error("failed to allocate command buffers!");
     }
 }
@@ -765,6 +768,9 @@ static void recordCommandBuffer(Application *app, VkCommandBuffer commandBuffer,
 }
 
 static void createSyncObjects(Application *app) {
+    da_resize(&app->imageAvailableSemaphores, MAX_FRAMES_IN_FLIGHT);
+    da_resize(&app->renderFinishedSemaphores, MAX_FRAMES_IN_FLIGHT);
+    da_resize(&app->inFlightFences, MAX_FRAMES_IN_FLIGHT);
     VkSemaphoreCreateInfo semaphoreInfo = {0};
     semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
@@ -772,10 +778,15 @@ static void createSyncObjects(Application *app) {
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-    if (vkCreateSemaphore(app->device, &semaphoreInfo, NULL, &app->imageAvailableSemaphore) != VK_SUCCESS ||
-            vkCreateSemaphore(app->device, &semaphoreInfo, NULL, &app->renderFinishedSemaphore) != VK_SUCCESS ||
-            vkCreateFence(app->device, &fenceInfo, NULL, &app->inFlightFence) != VK_SUCCESS) {
-        runtime_error("failed to create semaphores!");
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        if (vkCreateSemaphore(app->device, &semaphoreInfo, NULL, &app->imageAvailableSemaphores.items[i])
+                != VK_SUCCESS ||
+                vkCreateSemaphore(app->device, &semaphoreInfo, NULL, &app->renderFinishedSemaphores.items[i])
+                != VK_SUCCESS ||
+                vkCreateFence(app->device, &fenceInfo, NULL, &app->inFlightFences.items[i])
+                != VK_SUCCESS) {
+            runtime_error("failed to create semaphores!");
+        }
     }
 
 }
@@ -794,7 +805,7 @@ Application k1_init_window(int width, int height, const char *title) {
     createGraphicsPipeline(&app);
     createFrameBuffer(&app);
     createCommandPool(&app);
-    createCommandBuffer(&app);
+    createCommandBuffers(&app);
     createSyncObjects(&app);
     return app;
 }
@@ -813,31 +824,32 @@ static void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMesse
  * Submit the recorded command buffer
  * Present the swap chain image
  * */
+static size_t currentFrame = 0;
 static void drawFrame(Application *app) {
-    vkWaitForFences(app->device, 1, &(app->inFlightFence), VK_TRUE, UINT64_MAX);
-    vkResetFences(app->device, 1, &app->inFlightFence);
+    vkWaitForFences(app->device, 1, &(app->inFlightFences.items[currentFrame]), VK_TRUE, UINT64_MAX);
+    vkResetFences(app->device, 1, &app->inFlightFences.items[currentFrame]);
 
     uint32_t imageIndex;
-    vkAcquireNextImageKHR(app->device, app->swapChain, UINT64_MAX, app->imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
-    vkResetCommandBuffer(app->commandBuffer, 0);
-    recordCommandBuffer(app, app->commandBuffer, imageIndex);
+    vkAcquireNextImageKHR(app->device, app->swapChain, UINT64_MAX, app->imageAvailableSemaphores.items[currentFrame], VK_NULL_HANDLE, &imageIndex);
+    vkResetCommandBuffer(app->commandBuffers.items[currentFrame], 0);
+    recordCommandBuffer(app, app->commandBuffers.items[currentFrame], imageIndex);
 
     VkSubmitInfo submitInfo = {0};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-    VkSemaphore waitSemaphores[] = {app->imageAvailableSemaphore};
+    VkSemaphore waitSemaphores[] = {app->imageAvailableSemaphores.items[currentFrame]};
     VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
     submitInfo.waitSemaphoreCount = 1;
     submitInfo.pWaitSemaphores = waitSemaphores;
     submitInfo.pWaitDstStageMask = waitStages;
     submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &app->commandBuffer;
+    submitInfo.pCommandBuffers = &app->commandBuffers.items[currentFrame];
 
-    VkSemaphore signalSemaphores[] = {app->renderFinishedSemaphore};
+    VkSemaphore signalSemaphores[] = {app->renderFinishedSemaphores.items[currentFrame]};
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = signalSemaphores;
 
-    if (vkQueueSubmit(app->graphicsQueue, 1, &submitInfo, app->inFlightFence) != VK_SUCCESS) {
+    if (vkQueueSubmit(app->graphicsQueue, 1, &submitInfo, app->inFlightFences.items[currentFrame]) != VK_SUCCESS) {
         runtime_error("failed to submit draw command buffer!");
     }
 
@@ -852,6 +864,7 @@ static void drawFrame(Application *app) {
     presentInfo.pImageIndices = &imageIndex;
 
     vkQueuePresentKHR(app->presentQueue, &presentInfo);
+    currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
 void k1_main_loop(Application *app) {
@@ -863,9 +876,11 @@ void k1_main_loop(Application *app) {
 }
 
 void k1_cleanup(Application *app) {
-    vkDestroySemaphore(app->device, app->imageAvailableSemaphore, NULL);
-    vkDestroySemaphore(app->device, app->renderFinishedSemaphore, NULL);
-    vkDestroyFence(app->device, app->inFlightFence, NULL);
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        vkDestroySemaphore(app->device, app->renderFinishedSemaphores.items[i], NULL);
+        vkDestroySemaphore(app->device, app->imageAvailableSemaphores.items[i], NULL);
+        vkDestroyFence(app->device, app->inFlightFences.items[i], NULL);
+    }
     vkDestroyCommandPool(app->device, app->commandPool, NULL);
     for (size_t i = 0; i < app->swapChainFramebuffers.count; ++i) {
         vkDestroyFramebuffer(app->device, app->swapChainFramebuffers.items[i], NULL);

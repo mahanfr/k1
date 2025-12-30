@@ -25,10 +25,10 @@ typedef struct {
     VkPipeline graphicsPipeline;
     VECTOR_T(VkFramebuffer) swapChainFramebuffers;
     VkCommandPool commandPool;
-    VkCommandBuffer commandBuffer;
-    VkSemaphore imageAvailableSemaphore;
-    VkSemaphore renderFinishedSemaphore;
-    VkFence inFlightFence;
+    VECTOR_T(VkCommandBuffer) commandBuffers;
+    VECTOR_T(VkSemaphore) imageAvailableSemaphores;
+    VECTOR_T(VkSemaphore) renderFinishedSemaphores;
+    VECTOR_T(VkFence) inFlightFences;
 } Application;
 
 Application k1_init_window(int width, int height, const char *title);
