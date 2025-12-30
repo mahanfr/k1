@@ -4,7 +4,7 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-#define VECTOR_T(T) struct { T *items; int count; int capacity; }
+#define VECTOR_T(T) struct { T *items; size_t count; size_t capacity; }
 
 typedef struct {
     GLFWwindow *window;

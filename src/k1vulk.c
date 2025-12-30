@@ -141,8 +141,8 @@ static bool checkValidationLayerSupport() {
     vkEnumerateInstanceLayerProperties(&layerCount, availableLayers);
 
     bool layerFound = false;
-    for (int vl_i = 0; vl_i < ARRAY_LEN(validationLayers); ++vl_i) {
-        for (int lp_i = 0; lp_i < layerCount; ++lp_i) {
+    for (size_t vl_i = 0; vl_i < ARRAY_LEN(validationLayers); ++vl_i) {
+        for (size_t lp_i = 0; lp_i < layerCount; ++lp_i) {
             if (strcmp(validationLayers[vl_i], availableLayers[lp_i].layerName) == 0) {
                 layerFound = true;
                 break;
@@ -245,7 +245,7 @@ static QueueFamilyIndices findQueueFamilies(Application *app, VkPhysicalDevice d
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, NULL);
     VkQueueFamilyProperties *queueFamilies = ARRAY_NEW(VkQueueFamilyProperties, queueFamilyCount);
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies);
-    for (int i = 0; i < queueFamilyCount; i++) {
+    for (size_t i = 0; i < queueFamilyCount; i++) {
         // Present Support
         VkBool32 presentSupport = false;
         vkGetPhysicalDeviceSurfaceSupportKHR(device, i, app->surface, &presentSupport);
@@ -263,7 +263,7 @@ static QueueFamilyIndices findQueueFamilies(Application *app, VkPhysicalDevice d
     return indices;
 }
 
-static bool checkDeviceExtensionSupport(Application *app, VkPhysicalDevice device) {
+static bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
     uint32_t extensionCount;
     vkEnumerateDeviceExtensionProperties(device, NULL, &extensionCount, NULL);
 
@@ -271,8 +271,8 @@ static bool checkDeviceExtensionSupport(Application *app, VkPhysicalDevice devic
     vkEnumerateDeviceExtensionProperties(device, NULL, &extensionCount, availableExtensions);
 
     bool extentionFound = false;
-    for (int de_i = 0; de_i < ARRAY_LEN(deviceExtensions); ++de_i) {
-        for (int ae_i = 0; ae_i < extensionCount; ++ae_i) {
+    for (size_t de_i = 0; de_i < ARRAY_LEN(deviceExtensions); ++de_i) {
+        for (size_t ae_i = 0; ae_i < extensionCount; ++ae_i) {
             if (strcmp(deviceExtensions[de_i], availableExtensions[ae_i].extensionName) == 0) {
                 extentionFound = true;
                 break;
@@ -309,7 +309,6 @@ static SwapChainSupportDetails querySwapChainSupport(Application *app, VkPhysica
 }
 
 VkSurfaceFormatKHR chooseSwapSurfaceFormat(
-        Application *app,
         const VkSurfaceFormatKHR *availableFormats,
         int formatsCount) {
 
@@ -322,7 +321,6 @@ VkSurfaceFormatKHR chooseSwapSurfaceFormat(
 }
 
 VkPresentModeKHR chooseSwapPresentMode(
-        Application *app,
         const VkPresentModeKHR* availablePresentModes,
         int presentModesCount) {
     for (int i = 0; i < presentModesCount; ++i) {
@@ -356,7 +354,7 @@ static bool isDeviceSuitable(Application *app, VkPhysicalDevice device) {
     vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
     // TODO: Pick the best GPU
     QueueFamilyIndices indices = findQueueFamilies(app, device);
-    bool extensionsSupported = checkDeviceExtensionSupport(app, device);
+    bool extensionsSupported = checkDeviceExtensionSupport(device);
     bool swapChainAdequate = false;
     if (extensionsSupported) {
         SwapChainSupportDetails swapChainSupport = querySwapChainSupport(app, device);
@@ -376,7 +374,7 @@ static void pickPhysicalDevice(Application *app) {
     vkEnumeratePhysicalDevices(app->instance, &deviceCount, NULL);
     VkPhysicalDevice* devices = ARRAY_NEW(VkPhysicalDevice, deviceCount);
     vkEnumeratePhysicalDevices(app->instance, &deviceCount, devices);
-    for (int i = 0; i < deviceCount; ++i) {
+    for (size_t i = 0; i < deviceCount; ++i) {
         if (isDeviceSuitable(app, devices[i])) {
             app->physicalDevice = devices[i];
             break;
@@ -397,7 +395,7 @@ static void createLogicalDevice(Application *app) {
     };
 
     float queuePriority = 1.0f;
-    for(int i = 0; i < ARRAY_LEN(queueFamilies); ++i) {
+    for(size_t i = 0; i < ARRAY_LEN(queueFamilies); ++i) {
         VkDeviceQueueCreateInfo queueCreateInfo = {0};
         queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
         queueCreateInfo.queueFamilyIndex = queueFamilies[i];
@@ -435,8 +433,8 @@ static void createLogicalDevice(Application *app) {
 
 static void createSwapChain(Application *app) {
     SwapChainSupportDetails swapChainSupport = querySwapChainSupport(app, app->physicalDevice);
-    VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(app, swapChainSupport.formats.items, swapChainSupport.formats.count);
-    VkPresentModeKHR presentMode = chooseSwapPresentMode(app, swapChainSupport.presentModes.items, swapChainSupport.presentModes.count);
+    VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats.items, swapChainSupport.formats.count);
+    VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes.items, swapChainSupport.presentModes.count);
     VkExtent2D extent = chooseSwapExtent(app, swapChainSupport.capabilities);
 
     uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
@@ -869,13 +867,13 @@ void k1_cleanup(Application *app) {
     vkDestroySemaphore(app->device, app->renderFinishedSemaphore, NULL);
     vkDestroyFence(app->device, app->inFlightFence, NULL);
     vkDestroyCommandPool(app->device, app->commandPool, NULL);
-    for (int i = 0; i < app->swapChainFramebuffers.count; ++i) {
+    for (size_t i = 0; i < app->swapChainFramebuffers.count; ++i) {
         vkDestroyFramebuffer(app->device, app->swapChainFramebuffers.items[i], NULL);
     }
     vkDestroyPipeline(app->device, app->graphicsPipeline, NULL);
     vkDestroyPipelineLayout(app->device, app->pipelineLayout, NULL);
     vkDestroyRenderPass(app->device, app->renderPass, NULL);
-    for (int i = 0; i < app->swapChainImageViews.count; ++i) {
+    for (size_t i = 0; i < app->swapChainImageViews.count; ++i) {
         vkDestroyImageView(app->device, app->swapChainImageViews.items[i], NULL);
     }
     vkDestroySwapchainKHR(app->device, app->swapChain, NULL);
