@@ -29,6 +29,7 @@ typedef struct {
     VECTOR_T(VkSemaphore) imageAvailableSemaphores;
     VECTOR_T(VkSemaphore) renderFinishedSemaphores;
     VECTOR_T(VkFence) inFlightFences;
+    bool framebufferResized;
 } Application;
 
 Application k1_init_window(int width, int height, const char *title);

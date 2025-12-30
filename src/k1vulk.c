@@ -125,14 +125,20 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     return VK_FALSE;
 }
 
+static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
+    Application *app = (Application*) glfwGetWindowUserPointer(window);
+    app->framebufferResized = true;
+}
+
 static Application initWindow(int width, int height, const char *title) {
     glfwInit();
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    // glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
     Application app = {0};
     app.window = glfwCreateWindow(width, height, title, NULL, NULL);
+    app.framebufferResized = false;
     return app;
 }
 
@@ -674,7 +680,7 @@ static void createGraphicsPipeline(Application *app) {
     free((void*) fragShaderCode.items);
 }
 
-static void createFrameBuffer(Application *app) {
+static void createFrameBuffers(Application *app) {
      da_resize(&app->swapChainFramebuffers, app->swapChainImageViews.count + 1);
      for (size_t i = 0; i < app->swapChainImageViews.count; i++) {
          VkImageView attachments[] = {
@@ -788,11 +794,43 @@ static void createSyncObjects(Application *app) {
             runtime_error("failed to create semaphores!");
         }
     }
+}
 
+static void cleanupSwapChain(Application *app) {
+    for (size_t i = 0; i < app->swapChainFramebuffers.count; ++i) {
+        vkDestroyFramebuffer(app->device, app->swapChainFramebuffers.items[i], NULL);
+    }
+    for (size_t i = 0; i < app->swapChainImageViews.count; ++i) {
+        vkDestroyImageView(app->device, app->swapChainImageViews.items[i], NULL);
+    }
+    vkDestroySwapchainKHR(app->device, app->swapChain, NULL);
+}
+
+static void recreateSwapChain(Application *app) {
+    int width = 0, height = 0;
+    glfwGetFramebufferSize(app->window, &width, &height);
+    while (width == 0 || height == 0) {
+        glfwGetFramebufferSize(app->window, &width, &height);
+        glfwWaitEvents();
+    }
+
+    vkDeviceWaitIdle(app->device);
+
+    cleanupSwapChain(app);
+
+    createSwapChain(app);
+    createImageViews(app);
+    createFrameBuffers(app);
+}
+
+static void setGlfwResizeWindowCallbacks(Application *app) {
+    glfwSetWindowUserPointer(app->window, app);
+    glfwSetFramebufferSizeCallback(app->window, framebufferResizeCallback);
 }
 
 Application k1_init_window(int width, int height, const char *title) {
     Application app = initWindow(width, height, title);
+    setGlfwResizeWindowCallbacks(&app);
     initVulkan(&app);
     setupDebugMessenger(&app);
     createSurface(&app);
@@ -803,7 +841,7 @@ Application k1_init_window(int width, int height, const char *title) {
     createImageViews(&app);
     createRenderPass(&app);
     createGraphicsPipeline(&app);
-    createFrameBuffer(&app);
+    createFrameBuffers(&app);
     createCommandPool(&app);
     createCommandBuffers(&app);
     createSyncObjects(&app);
@@ -827,10 +865,20 @@ static void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMesse
 static size_t currentFrame = 0;
 static void drawFrame(Application *app) {
     vkWaitForFences(app->device, 1, &(app->inFlightFences.items[currentFrame]), VK_TRUE, UINT64_MAX);
-    vkResetFences(app->device, 1, &app->inFlightFences.items[currentFrame]);
 
     uint32_t imageIndex;
-    vkAcquireNextImageKHR(app->device, app->swapChain, UINT64_MAX, app->imageAvailableSemaphores.items[currentFrame], VK_NULL_HANDLE, &imageIndex);
+    VkResult result = vkAcquireNextImageKHR(app->device, app->swapChain, UINT64_MAX,
+            app->imageAvailableSemaphores.items[currentFrame],
+            VK_NULL_HANDLE, &imageIndex);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        recreateSwapChain(app);
+        return;
+    } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+        runtime_error("failed to acquire swap chain image!");
+    }
+
+    vkResetFences(app->device, 1, &app->inFlightFences.items[currentFrame]);
+
     vkResetCommandBuffer(app->commandBuffers.items[currentFrame], 0);
     recordCommandBuffer(app, app->commandBuffers.items[currentFrame], imageIndex);
 
@@ -863,7 +911,13 @@ static void drawFrame(Application *app) {
     presentInfo.pSwapchains = swapChains;
     presentInfo.pImageIndices = &imageIndex;
 
-    vkQueuePresentKHR(app->presentQueue, &presentInfo);
+    result = vkQueuePresentKHR(app->presentQueue, &presentInfo);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || app->framebufferResized) {
+        app->framebufferResized = false;
+        recreateSwapChain(app);
+    } else if (result != VK_SUCCESS) {
+        runtime_error("failed to present swap chain image!");
+    }
     currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
@@ -876,22 +930,16 @@ void k1_main_loop(Application *app) {
 }
 
 void k1_cleanup(Application *app) {
+    cleanupSwapChain(app);
+    vkDestroyPipeline(app->device, app->graphicsPipeline, NULL);
+    vkDestroyPipelineLayout(app->device, app->pipelineLayout, NULL);
+    vkDestroyRenderPass(app->device, app->renderPass, NULL);
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         vkDestroySemaphore(app->device, app->renderFinishedSemaphores.items[i], NULL);
         vkDestroySemaphore(app->device, app->imageAvailableSemaphores.items[i], NULL);
         vkDestroyFence(app->device, app->inFlightFences.items[i], NULL);
     }
     vkDestroyCommandPool(app->device, app->commandPool, NULL);
-    for (size_t i = 0; i < app->swapChainFramebuffers.count; ++i) {
-        vkDestroyFramebuffer(app->device, app->swapChainFramebuffers.items[i], NULL);
-    }
-    vkDestroyPipeline(app->device, app->graphicsPipeline, NULL);
-    vkDestroyPipelineLayout(app->device, app->pipelineLayout, NULL);
-    vkDestroyRenderPass(app->device, app->renderPass, NULL);
-    for (size_t i = 0; i < app->swapChainImageViews.count; ++i) {
-        vkDestroyImageView(app->device, app->swapChainImageViews.items[i], NULL);
-    }
-    vkDestroySwapchainKHR(app->device, app->swapChain, NULL);
     vkDestroyDevice(app->device, NULL);
     if (enableValidationLayers) {
         DestroyDebugUtilsMessengerEXT(app->instance, app->debugMessenger, NULL);
