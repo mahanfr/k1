@@ -100,7 +100,25 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
     void* pUserData) {
 
-    fprintf(stderr, "validation layer: %s\n", pCallbackData->pMessage);
+    (void) messageType;
+    (void) pUserData;
+
+    const char* severity;
+    switch (messageSeverity) {
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:  severity = "\033[33m[Warn]\033[0m"; break;
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:    severity = "\033[31m[Erro]\033[0m"; break;
+        default: severity = "\033[36m[Info]\033[0m"; break;
+    }
+
+    const char* mtype;
+    switch (messageType) {
+        case VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT:             mtype = " Validation"; break;
+        case VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT:            mtype = " Performance"; break;
+        case VK_DEBUG_UTILS_MESSAGE_TYPE_DEVICE_ADDRESS_BINDING_BIT_EXT: mtype = " Addr Binding"; break;
+        default:                                                         mtype = ""; break;
+    }
+
+    fprintf(stderr, "%s Vulkan%s: %s\n", severity, mtype, pCallbackData->pMessage);
 
     return VK_FALSE;
 }
