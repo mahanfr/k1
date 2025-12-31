@@ -22,13 +22,16 @@ rwildcard = $(foreach d,$(wildcard $(1:=/*)),$(call rwildcard,$d,$2) $(filter $(
 SRC = $(call rwildcard,$(SRC_DIR),*.c)
 OBJS = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(SRC))
 
-.PHONY: all library bin clean
+SHADERS_DIR = shaders
+SHADERS_SRC = $(call rwildcard,$(SHADERS_DIR),*.glsl)
+SHADERS_TARGET = $(patsubst $(SHADERS_DIR)/%.glsl, $(SHADERS_DIR)/%.spv, $(SHADERS_SRC))
 
-all: always library bin
+.PHONY: all library bin shaders clean
 
+all: always library bin shaders
 library: always $(TARGET_DLIB)
-
 bin: always $(TARGET_BIN)
+shaders: $(SHADERS_TARGET)
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	$(CC) $(CFLAGS) $(INCLUDE_PATHS) -fPIC -c $^ -o $@ $(LDFLAGS) $(LDLIBS)
@@ -40,6 +43,9 @@ $(TARGET_BIN): $(OBJS)
 $(TARGET_DLIB): $(OBJS)
 	$(CC) $(CFLAGS) -shared -o $@ $^ $(LDFLAGS) $(LDLIBS) -DLIB
 	@ echo DONE. CREATED Dynamic Library $@
+
+$(SHADERS_DIR)/%.spv: $(SHADERS_DIR)/%.glsl
+	glslang -V -o $@ $^
 
 always:
 	mkdir -p $(BUILD_DIR)

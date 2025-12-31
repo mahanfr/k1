@@ -3,8 +3,14 @@
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#include <cglm/struct.h>
 
 #define VECTOR_T(T) struct { T *items; size_t count; size_t capacity; }
+
+typedef struct {
+    vec2s pos;
+    vec3s color;
+} Vertex;
 
 typedef struct {
     GLFWwindow *window;
@@ -29,6 +35,8 @@ typedef struct {
     VECTOR_T(VkSemaphore) imageAvailableSemaphores;
     VECTOR_T(VkSemaphore) renderFinishedSemaphores;
     VECTOR_T(VkFence) inFlightFences;
+    VkBuffer vertexBuffer;
+    VkDeviceMemory vertexBufferMemory;
     bool framebufferResized;
 } Application;
 

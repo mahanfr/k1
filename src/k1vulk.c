@@ -90,6 +90,28 @@ const char *deviceExtensions[] = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
+static VkVertexInputBindingDescription getVertexBindDescription() {
+    VkVertexInputBindingDescription bindingDescription = {0};
+    bindingDescription.binding = 0;
+    bindingDescription.stride = sizeof(Vertex);
+    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    return bindingDescription;
+}
+
+static void getVertexAttributeDescriptions(VkVertexInputAttributeDescription *attributeDescriptions, size_t numAttrDesc) {
+    assert(numAttrDesc == 2 && "NUMBER OF VERTEX ATTRIBUTE DESCRIPTIONS");
+    attributeDescriptions[0].binding = 0;
+    attributeDescriptions[0].location = 0;
+    attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescriptions[0].offset = offsetof(Vertex, pos);
+
+    attributeDescriptions[1].binding = 0;
+    attributeDescriptions[1].location = 1;
+    attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[1].offset = offsetof(Vertex, color);
+}
+
 typedef struct {
     VkSurfaceCapabilitiesKHR capabilities;
     VECTOR_T(VkSurfaceFormatKHR) formats;
@@ -126,6 +148,8 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 }
 
 static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
+    (void) width;
+    (void) height;
     Application *app = (Application*) glfwGetWindowUserPointer(window);
     app->framebufferResized = true;
 }
@@ -590,11 +614,14 @@ static void createGraphicsPipeline(Application *app) {
     VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo = {0};
+    VkVertexInputBindingDescription bindingDescription = getVertexBindDescription();
+    VkVertexInputAttributeDescription attributeDescriptions[2] = {0};
+    getVertexAttributeDescriptions(attributeDescriptions, ARRAY_LEN(attributeDescriptions));
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertexInputInfo.vertexBindingDescriptionCount = 0;
-    vertexInputInfo.pVertexBindingDescriptions = NULL;
-    vertexInputInfo.vertexAttributeDescriptionCount = 0;
-    vertexInputInfo.pVertexAttributeDescriptions = NULL;
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    vertexInputInfo.vertexAttributeDescriptionCount = ARRAY_LEN(attributeDescriptions);
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions;
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly = {0};
     inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -715,6 +742,57 @@ static void createCommandPool(Application *app) {
     }
 }
 
+const Vertex vertices[3] = {
+    { {{0.0f, -0.5f}}, {{1.0f, 1.0f, 1.0f}} },
+    { {{0.5f,  0.5f}}, {{0.0f, 1.0f, 0.0f}} },
+    { {{-0.5f, 0.5f}}, {{0.0f, 0.0f, 1.0f}} }
+};
+
+uint32_t findMemoryType(Application *app, uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+    VkPhysicalDeviceMemoryProperties memProperties;
+    vkGetPhysicalDeviceMemoryProperties(app->physicalDevice, &memProperties);
+
+    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+        if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+            return i;
+        }
+    }
+
+    runtime_error("failed to find suitable memory type!");
+    return 0;
+}
+
+static void createVertexBuffer(Application *app) {
+    VkBufferCreateInfo bufferInfo = {0};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = sizeof(vertices);
+    bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    if (vkCreateBuffer(app->device, &bufferInfo, NULL, &app->vertexBuffer) != VK_SUCCESS) {
+        runtime_error("failed to create vertex buffer!");
+    }
+
+    VkMemoryRequirements memRequirements;
+    vkGetBufferMemoryRequirements(app->device, app->vertexBuffer, &memRequirements);
+    VkMemoryAllocateInfo allocInfo = {0};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memRequirements.size;
+    allocInfo.memoryTypeIndex = findMemoryType(app, memRequirements.memoryTypeBits,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    if (vkAllocateMemory(app->device, &allocInfo, NULL, &app->vertexBufferMemory) != VK_SUCCESS) {
+        runtime_error("failed to allocate vertex buffer memory!");
+    }
+    vkBindBufferMemory(app->device, app->vertexBuffer, app->vertexBufferMemory, 0);
+
+    void* data;
+    vkMapMemory(app->device, app->vertexBufferMemory, 0, bufferInfo.size, 0, &data);
+    memcpy(data, vertices, (size_t) bufferInfo.size);
+    vkUnmapMemory(app->device, app->vertexBufferMemory);
+
+}
+
 static void createCommandBuffers(Application *app) {
     VkCommandBufferAllocateInfo allocInfo = {0};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -722,7 +800,7 @@ static void createCommandBuffers(Application *app) {
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     allocInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
 
-    da_resize(&app->commandBuffers, MAX_FRAMES_IN_FLIGHT);
+    da_resize(&app->commandBuffers, (size_t) MAX_FRAMES_IN_FLIGHT);
     if (vkAllocateCommandBuffers(app->device, &allocInfo, app->commandBuffers.items) != VK_SUCCESS) {
         runtime_error("failed to allocate command buffers!");
     }
@@ -750,22 +828,27 @@ static void recordCommandBuffer(Application *app, VkCommandBuffer commandBuffer,
 
     // ---- START OF COMMAND RECORDING ---- //
     vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, app->graphicsPipeline);
-    VkViewport viewport = {0};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width  = (float) app->swapChainExtent.width;
-    viewport.height = (float) app->swapChainExtent.height;
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, app->graphicsPipeline);
 
-    VkRect2D scissor = {0};
-    scissor.offset = (VkOffset2D) {0, 0};
-    scissor.extent = app->swapChainExtent;
-    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+        VkViewport viewport = {0};
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.width  = (float) app->swapChainExtent.width;
+        viewport.height = (float) app->swapChainExtent.height;
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
 
-    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+        VkRect2D scissor = {0};
+        scissor.offset = (VkOffset2D) {0, 0};
+        scissor.extent = app->swapChainExtent;
+        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+        VkBuffer vertexBuffers[] = {app->vertexBuffer};
+        VkDeviceSize offsets[] = {0};
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+
+        vkCmdDraw(commandBuffer, ARRAY_LEN(vertices), 1, 0, 0);
     vkCmdEndRenderPass(commandBuffer);
     // ---- END OF COMMAND RECORDING ---- //
     if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
@@ -774,9 +857,9 @@ static void recordCommandBuffer(Application *app, VkCommandBuffer commandBuffer,
 }
 
 static void createSyncObjects(Application *app) {
-    da_resize(&app->imageAvailableSemaphores, MAX_FRAMES_IN_FLIGHT);
-    da_resize(&app->renderFinishedSemaphores, MAX_FRAMES_IN_FLIGHT);
-    da_resize(&app->inFlightFences, MAX_FRAMES_IN_FLIGHT);
+    da_resize(&app->imageAvailableSemaphores, (size_t) MAX_FRAMES_IN_FLIGHT);
+    da_resize(&app->renderFinishedSemaphores, (size_t) MAX_FRAMES_IN_FLIGHT);
+    da_resize(&app->inFlightFences,           (size_t) MAX_FRAMES_IN_FLIGHT);
     VkSemaphoreCreateInfo semaphoreInfo = {0};
     semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
@@ -843,6 +926,7 @@ Application k1_init_window(int width, int height, const char *title) {
     createGraphicsPipeline(&app);
     createFrameBuffers(&app);
     createCommandPool(&app);
+    createVertexBuffer(&app);
     createCommandBuffers(&app);
     createSyncObjects(&app);
     return app;
@@ -931,10 +1015,12 @@ void k1_main_loop(Application *app) {
 
 void k1_cleanup(Application *app) {
     cleanupSwapChain(app);
+    vkDestroyBuffer(app->device, app->vertexBuffer, NULL);
+    vkFreeMemory(app->device, app->vertexBufferMemory, NULL);
     vkDestroyPipeline(app->device, app->graphicsPipeline, NULL);
     vkDestroyPipelineLayout(app->device, app->pipelineLayout, NULL);
     vkDestroyRenderPass(app->device, app->renderPass, NULL);
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         vkDestroySemaphore(app->device, app->renderFinishedSemaphores.items[i], NULL);
         vkDestroySemaphore(app->device, app->imageAvailableSemaphores.items[i], NULL);
         vkDestroyFence(app->device, app->inFlightFences.items[i], NULL);
