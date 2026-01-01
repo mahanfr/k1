@@ -37,6 +37,8 @@ typedef struct {
     VECTOR_T(VkFence) inFlightFences;
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
+    VkBuffer indexBuffer;
+    VkDeviceMemory indexBufferMemory;
     bool framebufferResized;
 } Application;
 
