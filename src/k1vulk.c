@@ -762,35 +762,49 @@ uint32_t findMemoryType(Application *app, uint32_t typeFilter, VkMemoryPropertyF
     return 0;
 }
 
-static void createVertexBuffer(Application *app) {
+static void createBuffer(Application *app,
+        VkDeviceSize size,
+        VkBufferUsageFlags usage,
+        VkMemoryPropertyFlags properties,
+        VkBuffer *buffer,
+        VkDeviceMemory *bufferMemory) {
     VkBufferCreateInfo bufferInfo = {0};
     bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = sizeof(vertices);
-    bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    bufferInfo.size = size;
+    bufferInfo.usage = usage;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateBuffer(app->device, &bufferInfo, NULL, &app->vertexBuffer) != VK_SUCCESS) {
+    if (vkCreateBuffer(app->device, &bufferInfo, NULL, buffer) != VK_SUCCESS) {
         runtime_error("failed to create vertex buffer!");
     }
 
     VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(app->device, app->vertexBuffer, &memRequirements);
+    vkGetBufferMemoryRequirements(app->device, *buffer, &memRequirements);
+
     VkMemoryAllocateInfo allocInfo = {0};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = findMemoryType(app, memRequirements.memoryTypeBits,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    allocInfo.memoryTypeIndex = findMemoryType(app, memRequirements.memoryTypeBits, properties);
 
-    if (vkAllocateMemory(app->device, &allocInfo, NULL, &app->vertexBufferMemory) != VK_SUCCESS) {
+    if (vkAllocateMemory(app->device, &allocInfo, NULL, bufferMemory) != VK_SUCCESS) {
         runtime_error("failed to allocate vertex buffer memory!");
     }
-    vkBindBufferMemory(app->device, app->vertexBuffer, app->vertexBufferMemory, 0);
+    vkBindBufferMemory(app->device, *buffer, *bufferMemory, 0);
+}
 
+static void createVertexBuffer(Application *app) {
+    VkDeviceSize bufferSize = sizeof(vertices);
+    createBuffer(
+            app,
+            bufferSize,
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &app->vertexBuffer,
+            &app->vertexBufferMemory);
     void* data;
-    vkMapMemory(app->device, app->vertexBufferMemory, 0, bufferInfo.size, 0, &data);
-    memcpy(data, vertices, (size_t) bufferInfo.size);
+    vkMapMemory(app->device, app->vertexBufferMemory, 0, bufferSize, 0, &data);
+    memcpy(data, vertices, (size_t) bufferSize);
     vkUnmapMemory(app->device, app->vertexBufferMemory);
-
 }
 
 static void createCommandBuffers(Application *app) {
