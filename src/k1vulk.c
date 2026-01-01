@@ -792,19 +792,67 @@ static void createBuffer(Application *app,
     vkBindBufferMemory(app->device, *buffer, *bufferMemory, 0);
 }
 
+static void copyBuffer(
+        Application *app,
+        VkBuffer srcBuffer,
+        VkBuffer dstBuffer,
+        VkDeviceSize size) {
+    VkCommandBufferAllocateInfo allocInfo = {0};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = app->commandPool;
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer;
+    vkAllocateCommandBuffers(app->device, &allocInfo, &commandBuffer);
+
+    VkCommandBufferBeginInfo beginInfo = {0};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+        VkBufferCopy copyRegion = {0};
+        copyRegion.srcOffset = 0;
+        copyRegion.dstOffset = 0;
+        copyRegion.size = size;
+        vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+    vkEndCommandBuffer(commandBuffer);
+    VkSubmitInfo submitInfo = {0};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    vkQueueSubmit(app->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(app->graphicsQueue);
+
+    vkFreeCommandBuffers(app->device, app->commandPool, 1, &commandBuffer);
+}
+
 static void createVertexBuffer(Application *app) {
     VkDeviceSize bufferSize = sizeof(vertices);
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
     createBuffer(
             app,
             bufferSize,
-            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &stagingBuffer,
+            &stagingBufferMemory);
+    void* data;
+    vkMapMemory(app->device, stagingBufferMemory, 0, bufferSize, 0, &data);
+    memcpy(data, vertices, (size_t) bufferSize);
+    vkUnmapMemory(app->device, stagingBufferMemory);
+    createBuffer(
+            app,
+            bufferSize,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             &app->vertexBuffer,
             &app->vertexBufferMemory);
-    void* data;
-    vkMapMemory(app->device, app->vertexBufferMemory, 0, bufferSize, 0, &data);
-    memcpy(data, vertices, (size_t) bufferSize);
-    vkUnmapMemory(app->device, app->vertexBufferMemory);
+    copyBuffer(app, stagingBuffer, app->vertexBuffer, bufferSize);
+    vkDestroyBuffer(app->device, stagingBuffer, NULL);
+    vkFreeMemory(app->device, stagingBufferMemory, NULL);
 }
 
 static void createCommandBuffers(Application *app) {
